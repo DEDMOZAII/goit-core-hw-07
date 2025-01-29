@@ -17,15 +17,18 @@ class Name(Field):
 class Phone(Field):
     def __init__(self, value):
         if not value.isdigit() or len(value) != 10:
-            raise ValueError("Номер телефону повининен складатись з 10 цифр")
+            raise ValueError("Номер телефону повинен складатись з 10 цифр")
         super().__init__(value)
 
 class Birthday(Field):
     def __init__(self, value):
+        if not isinstance(value, str):
+            raise ValueError("Birthday must be a string in DD.MM.YYYY format.")
         try:
-            self.value = datetime.strptime(value, "%d.%m.%Y")
+            datetime.strptime(value, "%d.%m.%Y")
         except ValueError:
             raise ValueError("Invalid date format. Use DD.MM.YYYY")
+        super().__init__(value)
 
 class Record:
     def __init__(self, name):
@@ -46,9 +49,8 @@ class Record:
     def edit_phone(self, old_phone, new_phone):
         phone_to_edit = self.find_phone(old_phone)
         if phone_to_edit:
-            temp_phone = Phone(new_phone)
-            self.add_phone(new_phone)
             self.phones.remove(phone_to_edit)
+            self.add_phone(new_phone)
         else:
             raise ValueError(f"Номер {old_phone} не знайдено")
 
@@ -63,7 +65,7 @@ class Record:
 
     def __str__(self):
         phones = "; ".join(p.value for p in self.phones)
-        birthday = self.birthday.value.strftime("%d.%m.%Y") if self.birthday else "No birthday"
+        birthday = self.birthday.value if self.birthday else "No birthday"
         return f"Contact name: {self.name.value}, phones: {phones}, birthday: {birthday}"
 
 class AddressBook(UserDict):
@@ -84,9 +86,14 @@ class AddressBook(UserDict):
         upcoming = []
         for record in self.data.values():
             if record.birthday:
-                next_birthday = record.birthday.value.replace(year=today.year)
+                birthday_date = datetime.strptime(record.birthday.value, "%d.%m.%Y")
+                next_birthday = birthday_date.replace(year=today.year)
                 if next_birthday < today:
                     next_birthday = next_birthday.replace(year=today.year + 1)
+
+                if next_birthday.weekday() in (5, 6): 
+                    next_birthday += timedelta(days=(7 - next_birthday.weekday()))
+
                 if (next_birthday - today).days <= 7:
                     upcoming.append({"name": record.name.value, "birthday": next_birthday.strftime("%d.%m.%Y")})
         return upcoming
@@ -129,7 +136,7 @@ def show_birthday(args, book: AddressBook):
     name, *_ = args
     record = book.find(name)
     if record and record.birthday:
-        return record.birthday.value.strftime("%d.%m.%Y")
+        return record.birthday.value
     return f"No birthday found for {name}."
 
 @input_error
@@ -139,12 +146,30 @@ def birthdays(args, book: AddressBook):
         return "No birthdays in the next 7 days."
     return "\n".join(f"{item['name']}: {item['birthday']}" for item in upcoming)
 
+@input_error
+def change_phone(args, book: AddressBook):
+    name, old_phone, new_phone = args
+    record = book.find(name)
+    if record:
+        record.edit_phone(old_phone, new_phone)
+        return "Phone updated."
+    return f"Contact {name} not found."
+
+@input_error
+def show_phones(args, book: AddressBook):
+    name, *_ = args
+    record = book.find(name)
+    if record:
+        return ", ".join(phone.value for phone in record.phones)
+    return f"Contact {name} not found."
+
 def main():
     book = AddressBook()
     print("Welcome to the assistant bot!")
     while True:
-        user_input = input("Enter a command: ")
+        user_input = input("Enter a command: ").strip()
         command, *args = user_input.split(" ")
+        command = command.lower() 
 
         if command in ["close", "exit"]:
             print("Good bye!")
@@ -157,21 +182,10 @@ def main():
             print(add_contact(args, book))
 
         elif command == "change":
-            name, old_phone, new_phone = args
-            record = book.find(name)
-            if record:
-                record.edit_phone(old_phone, new_phone)
-                print("Phone updated.")
-            else:
-                print(f"Contact {name} not found.")
+            print(change_phone(args, book))
 
         elif command == "phone":
-            name, *_ = args
-            record = book.find(name)
-            if record:
-                print(", ".join(phone.value for phone in record.phones))
-            else:
-                print(f"Contact {name} not found.")
+            print(show_phones(args, book))
 
         elif command == "all":
             print(book)
